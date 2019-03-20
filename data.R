@@ -12,15 +12,14 @@ View(df)
 
 # Fix dataset for forecasting 
 df %<>% group_by(ticker) %>% 
+  mutate(breach_this_year=breach) %>% 
+  mutate(breach_last_year=lag(breach)) %>% 
+  mutate(breachtype_this_year=breachtype) %>% 
+  mutate(breachtype_last_year=lag(breachtype)) %>% 
   mutate(breach = lead(breach), breachtype = lead(breachtype)) %>%
   filter(year != 2010)
 
 ## Feature engineering -----------------------------------------------------------------------------
-# Feature engineering from given dataset
-df %<>% group_by(ticker) %>% 
-  mutate(breach_this_year=lag(breach)) %>% 
-  mutate(breach_last_year=lag(breach, 2))
-
 # Get stock details 
 # Takes a lil bit, might run into API limits if rerun too much
 l.out <- BatchGetSymbols(tickers = unique(df$ticker),
@@ -35,8 +34,7 @@ df %<>% left_join(l.out$df.tickers, by=c('ticker' = 'ticker', 'year' = 'ref.date
 df %<>% group_by(ticker) %>% 
   mutate_at(vars(volume, price.open, price.high, price.low, price.close, price.adjusted,
                  ret.adjusted.prices, ret.closing.prices, salesmillions, employees),
-            list(pct= ~ ./lag(.)))
+            list(pct = ~ ./lag(.)))
 
 # Save augmented dataset ----------------------------------------------------------------------------
 write.csv(df, "Breached_Augmented.csv")
-
