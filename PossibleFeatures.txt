@@ -1,0 +1,14 @@
+Possible Features	
+OriginofBreach: International or Domestic or Organized Crime
+
+TypeofBreach: DoS or Crimeware
+
+DataCompromised: Personal, Payment, Medical
+
+DaysUntilBreachWasDiscovered	
+
+ThreatActors: Internal or External
+
+BreachEventType:Compromise, Exfiltration, Discovery
+
+RegionType	
