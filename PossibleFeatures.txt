@@ -12,3 +12,5 @@ ThreatActors: Internal or External
 BreachEventType:Compromise, Exfiltration, Discovery
 
 RegionType	
+
+https://github.com/vz-risk/VCDB
