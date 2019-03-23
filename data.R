@@ -34,8 +34,11 @@ for (i in 1:ncol(df)){print(c(colnames(df)[i], sum(is.na(df[,i]))))}
 ## Feature engineering -----------------------------------------------------------------------------
 
 # Breach types
-df$bad_breach <- ifelse(df$breachtype_this_year %in% c("Email", "Hack/Web", "Virus", "Web", "Hack"), 1, 0)
-df$rand_breach <- ifelse(df$breachtype_this_year %in% setdiff(levels(df$breachtype), c("", "Hack/Web", "Virus", "Web", "Hack")), 1, 0) 
+bad <- c("Email", "Hack/Web", "Virus", "Web", "Hack")
+internal <- c("Dishonest employee", "FraudSe", "FraudSe/StolenLaptop", "Unintended Disclosure")
+df$bad_breach <- ifelse(df$breachtype_this_year %in% bad, 1, 0)
+df$internal_breach <- ifelse(df$breach_this_year %in% internal, 1, 0)
+df$rand_breach <- ifelse(df$breachtype_this_year %in% setdiff(setdiff(levels(df$breachtype), bad), internal), 1, 0)
 df$breachtype <- NULL
 
 # Cumulative Breaches
@@ -52,6 +55,8 @@ df %<>%
   mutate(industry_breach_sum = cumsum(breach_this_year), industry_bad_breach_sum = cumsum(bad_breach)) %>% 
   ungroup()
 
+industries <- read.csv("Breached_Augmented_2nd.csv")
+df %<>% left_join(industries, by = c("ticker"="ticker", "year"="year"))
 # Google trends results
 #   Captures consumer interest in company
 #   Literally the slowest thing known to mankind
