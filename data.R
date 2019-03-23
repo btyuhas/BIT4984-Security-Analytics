@@ -25,61 +25,66 @@ df %<>%
 # Fix dataset for forecasting
 df %<>% 
   group_by(ticker) %>% 
+  mutate(breach_this_year = breach, breachtype_this_year = breachtype) %>% 
   mutate(breach = lead(breach), breachtype = lead(breachtype)) %>%
   filter(year != 2010)
 
-
 for (i in 1:ncol(df)){print(c(colnames(df)[i], sum(is.na(df[,i]))))}
+
 ## Feature engineering -----------------------------------------------------------------------------
+
 # Breach types
-df$bad_breach <- ifelse(df$breachtype %in% c("Email", "Hack/Web", "Virus", "Web", "Hack"), 1, 0)
-df$rand_breach <- ifelse(df$breachtype %in% setdiff(levels(df$breachtype), c("", "Hack/Web", "Virus", "Web", "Hack")), 1, 0) 
+df$bad_breach <- ifelse(df$breachtype_this_year %in% c("Email", "Hack/Web", "Virus", "Web", "Hack"), 1, 0)
+df$rand_breach <- ifelse(df$breachtype_this_year %in% setdiff(levels(df$breachtype), c("", "Hack/Web", "Virus", "Web", "Hack")), 1, 0) 
 df$breachtype <- NULL
 
 # Cumulative Breaches
 #   By company
 df %<>%
   group_by(ticker) %>% 
-  mutate(breach_sum = cumsum(breach), bad_breach_sum = cumsum(bad_breach))
+  mutate(breach_sum = cumsum(breach_this_year), bad_breach_sum = cumsum(bad_breach))
 
 #   By Industry
 breaks <- c(100, 999, 1499, 1799, 1999, 3999, 4999, 5199, 5999, 6799, 8999, 9729, 9999)
 df$industry <- findInterval(df$sic4, breaks)
 df %<>%
   group_by(year, industry) %>% 
-  mutate(industry_breach_sum = cumsum(breach), industry_bad_breach_sum = cumsum(bad_breach)) %>% 
+  mutate(industry_breach_sum = cumsum(breach_this_year), industry_bad_breach_sum = cumsum(bad_breach)) %>% 
   ungroup()
 
 # Google trends results
 #   Captures consumer interest in company
 #   Literally the slowest thing known to mankind
-df2 <- data.frame()
-for (i in 1:(400/5)){
-  search_terms <- as.character(unique(df$ticker))[(5*i-4):(5*i)]
-  search_trends <- gtrends(search_terms, time="2005-01-01 2009-12-31")$interest_over_time
-  
-  if(!is.null(search_trends)){
-    search_trends %<>%
-      mutate(hits=as.numeric(hits)) %>% 
-      drop_na(hits) %>% 
-      group_by(date=as.numeric(substr(date, 1, 4)), keyword) %>% 
-      summarise(mean_hits=mean(hits), max_hits=max(hits))
-    
-    df2 <- bind_rows(df2, search_trends) 
-  }
-}
+#   Stored in google_trends.csv
+# df2 <- data.frame()
+# for (i in 1:(400/5)){
+#   search_terms <- as.character(unique(df$ticker))[(5*i-4):(5*i)]
+#   search_trends <- gtrends(search_terms, time="2005-01-01 2009-12-31")$interest_over_time
+#   
+#   if(!is.null(search_trends)){
+#     search_trends %<>%
+#       mutate(hits=as.numeric(hits)) %>% 
+#       drop_na(hits) %>% 
+#       group_by(date=as.numeric(substr(date, 1, 4)), keyword) %>% 
+#       summarise(mean_hits=mean(hits), max_hits=max(hits))
+#     
+#     df2 <- bind_rows(df2, search_trends) 
+#   }
+# }
+df2 <- read.csv("google_trends.csv", row.names = 1)
 df %<>% left_join(df2, by=c("ticker"="keyword", "year"="date"))
 
 # Get stock details 
 #   Takes a lil bit, might run into API limits if rerun too much
-l.out <- BatchGetSymbols(tickers = unique(df$ticker),
-                         first.date = "2005-01-01",
-                         last.date = "2009-12-31",
-                         freq.data = "yearly")
-l.out$df.tickers %<>% mutate(ref.date = as.numeric(substr(ref.date, 1, 4)))
-
+#   Stored in stock_prices.csv
+# l.out <- BatchGetSymbols(tickers = unique(df$ticker),
+#                          first.date = "2005-01-01",
+#                          last.date = "2009-12-31",
+#                          freq.data = "yearly")
+# l.out$df.tickers %<>% mutate(ref.date = as.numeric(substr(ref.date, 1, 4)))
+l.out <- read.csv("stock_prices.csv", row.names = 1)
 # Merge stock and given dataset
-df %<>% left_join(l.out$df.tickers, by=c('ticker' = 'ticker', 'year' = 'ref.date'))
+df %<>% left_join(l.out, by=c('ticker' = 'ticker', 'year' = 'ref.date'))
 
 # Add one year percentage change
 df %<>% 
