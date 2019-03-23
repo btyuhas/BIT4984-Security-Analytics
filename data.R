@@ -6,50 +6,86 @@ library(magrittr)
 library(BatchGetSymbols)
 library(gtrendsR)
 
-## Load data and correct format --------------------------------------------------------------------
-#setwd("~/git/BIT4984-Security-Analytics/")
+## Load and clean dataset --------------------------------------------------------------------
+setwd("~/git/BIT4984-Security-Analytics/")
 df <- read.csv("BreachedCompanies.csv")
-View(df)
 
-# Fix dataset for forecasting 
+# Drop companies without all years
+to_keep <- df %>%
+  group_by(ticker) %>%
+  summarise(n=n() == 6) %>%
+  filter(n==T)
+df %<>% filter(ticker %in% to_keep$ticker)
+
+# Clean NA values
+df %<>% 
+  mutate(breach = ifelse(is.na(breach), 0, breach)) %>% 
+  fill(salesmillions, employees, .direction='up')
+
+# Fix dataset for forecasting
 df %<>% 
   group_by(ticker) %>% 
-  mutate(breach_this_year=breach) %>% 
-  mutate(breach_last_year=lag(breach)) %>% 
-  mutate(breachtype_this_year=breachtype) %>% 
-  mutate(breachtype_last_year=lag(breachtype)) %>% 
   mutate(breach = lead(breach), breachtype = lead(breachtype)) %>%
   filter(year != 2010)
 
+
+for (i in 1:ncol(df)){print(c(colnames(df)[i], sum(is.na(df[,i]))))}
 ## Feature engineering -----------------------------------------------------------------------------
+# Breach types
+df$bad_breach <- ifelse(df$breachtype %in% c("Email", "Hack/Web", "Virus", "Web", "Hack"), 1, 0)
+df$rand_breach <- ifelse(df$breachtype %in% setdiff(levels(df$breachtype), c("", "Hack/Web", "Virus", "Web", "Hack")), 1, 0) 
+df$breachtype <- NULL
+
+# Cumulative Breaches
+#   By company
+df %<>%
+  group_by(ticker) %>% 
+  mutate(breach_sum = cumsum(breach), bad_breach_sum = cumsum(bad_breach))
+
+#   By Industry
+breaks <- c(100, 999, 1499, 1799, 1999, 3999, 4999, 5199, 5999, 6799, 8999, 9729, 9999)
+df$industry <- findInterval(df$sic4, breaks)
+df %<>%
+  group_by(year, industry) %>% 
+  mutate(industry_breach_sum = cumsum(breach), industry_bad_breach_sum = cumsum(bad_breach)) %>% 
+  ungroup()
+
 # Google trends results
-search_terms <- paste0(unique(df$compname), " data security")
-
-search_trends <- gtrends(search_terms, time="2005-01-01 2009-12-31")$interest_over_time
-trends %>% 
-  group_by(date=substr(date, 1, 4)) %>% 
-  mutate(max_hits=max(hits), hits=mean(hits)) %>% 
-  mutate(keyword = substr(keyword, 1, nchar(keyword)-2)) %>% 
-  select(-c(geo, gprop, category)) %>% 
-  distinct()
-
-df %<>% left_join(search_trends$hits, by=c("compname"="keyword", "year"="date"))
+#   Captures consumer interest in company
+#   Literally the slowest thing known to mankind
+df2 <- data.frame()
+for (i in 1:(400/5)){
+  search_terms <- as.character(unique(df$ticker))[(5*i-4):(5*i)]
+  search_trends <- gtrends(search_terms, time="2005-01-01 2009-12-31")$interest_over_time
+  
+  if(!is.null(search_trends)){
+    search_trends %<>%
+      mutate(hits=as.numeric(hits)) %>% 
+      drop_na(hits) %>% 
+      group_by(date=as.numeric(substr(date, 1, 4)), keyword) %>% 
+      summarise(mean_hits=mean(hits), max_hits=max(hits))
+    
+    df2 <- bind_rows(df2, search_trends) 
+  }
+}
+df %<>% left_join(df2, by=c("ticker"="keyword", "year"="date"))
 
 # Get stock details 
-# Takes a lil bit, might run into API limits if rerun too much
+#   Takes a lil bit, might run into API limits if rerun too much
 l.out <- BatchGetSymbols(tickers = unique(df$ticker),
                          first.date = "2005-01-01",
                          last.date = "2009-12-31",
                          freq.data = "yearly")
 l.out$df.tickers %<>% mutate(ref.date = as.numeric(substr(ref.date, 1, 4)))
-# merge stock and given dataset
+
+# Merge stock and given dataset
 df %<>% left_join(l.out$df.tickers, by=c('ticker' = 'ticker', 'year' = 'ref.date'))
 
 # Add one year percentage change
 df %<>% 
   group_by(ticker) %>% 
   mutate_at(vars(volume, price.open, price.high, price.low, price.close, price.adjusted,
-                 ret.adjusted.prices, ret.closing.prices, salesmillions, employees),
+                 ret.adjusted.prices, ret.closing.prices, salesmillions, employees, mean_hits, max_hits),
             list(pct = ~ ./lag(.)))
 
 # Save augmented dataset ----------------------------------------------------------------------------
